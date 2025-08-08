@@ -32,16 +32,26 @@ jobs:
           echo "Changed files:"
           cat changed_files.txt
           
-          # Count changes by area
-          echo "models_changed=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -c '^models/' || echo 0)" >> $GITHUB_OUTPUT
-          echo "controllers_changed=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -c '^controllers/' || echo 0)" >> $GITHUB_OUTPUT
-          echo "routes_changed=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -c '^routes/' || echo 0)" >> $GITHUB_OUTPUT
-          echo "tests_changed=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -c -E '(^tests/|_test\.go$)' || echo 0)" >> $GITHUB_OUTPUT
-          echo "github_changed=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -c '^\.github/' || echo 0)" >> $GITHUB_OUTPUT
-          echo "docs_changed=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -c -E '\.(md|txt)$' || echo 0)" >> $GITHUB_OUTPUT
-          echo "deps_changed=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -c -E '^(go\.(mod|sum)|Dockerfile)$' || echo 0)" >> $GITHUB_OUTPUT
-          echo "config_changed=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -c -E '\.(yml|yaml|json|toml)$' || echo 0)" >> $GITHUB_OUTPUT
-          echo "main_changed=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -c '^main\.go$' || echo 0)" >> $GITHUB_OUTPUT
+          # Count changes by area - using safer syntax
+          MODELS_CHANGED=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep '^models/' | wc -l || echo 0)
+          CONTROLLERS_CHANGED=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep '^controllers/' | wc -l || echo 0)
+          ROUTES_CHANGED=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep '^routes/' | wc -l || echo 0)
+          TESTS_CHANGED=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -E '(^tests/|_test\.go$)' | wc -l || echo 0)
+          GITHUB_CHANGED=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep '^\.github/' | wc -l || echo 0)
+          DOCS_CHANGED=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -E '\.(md|txt)$' | wc -l || echo 0)
+          DEPS_CHANGED=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -E '^(go\.(mod|sum)|Dockerfile)$' | wc -l || echo 0)
+          CONFIG_CHANGED=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -E '\.(yml|yaml|json|toml)$' | wc -l || echo 0)
+          MAIN_CHANGED=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep '^main\.go$' | wc -l || echo 0)
+          
+          echo "models_changed=$MODELS_CHANGED" >> $GITHUB_OUTPUT
+          echo "controllers_changed=$CONTROLLERS_CHANGED" >> $GITHUB_OUTPUT
+          echo "routes_changed=$ROUTES_CHANGED" >> $GITHUB_OUTPUT
+          echo "tests_changed=$TESTS_CHANGED" >> $GITHUB_OUTPUT
+          echo "github_changed=$GITHUB_CHANGED" >> $GITHUB_OUTPUT
+          echo "docs_changed=$DOCS_CHANGED" >> $GITHUB_OUTPUT
+          echo "deps_changed=$DEPS_CHANGED" >> $GITHUB_OUTPUT
+          echo "config_changed=$CONFIG_CHANGED" >> $GITHUB_OUTPUT
+          echo "main_changed=$MAIN_CHANGED" >> $GITHUB_OUTPUT
           
           # Calculate total changes
           TOTAL_FILES=$(git diff --name-only $BASE_SHA..$HEAD_SHA | wc -l)
@@ -52,10 +62,14 @@ jobs:
           echo "lines_added=$LINES_ADDED" >> $GITHUB_OUTPUT
           echo "lines_deleted=$LINES_DELETED" >> $GITHUB_OUTPUT
           
-          # Check for specific file types
-          echo "has_go_files=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -c '\.go$' || echo 0)" >> $GITHUB_OUTPUT
-          echo "has_sql_files=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -c '\.sql$' || echo 0)" >> $GITHUB_OUTPUT
-          echo "has_docker_files=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -c -E '^(Dockerfile|\.dockerignore)$' || echo 0)" >> $GITHUB_OUTPUT
+          # Check for specific file types - using safer syntax
+          HAS_GO_FILES=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep '\.go$' | wc -l || echo 0)
+          HAS_SQL_FILES=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep '\.sql$' | wc -l || echo 0)
+          HAS_DOCKER_FILES=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -E '^(Dockerfile|\.dockerignore)$' | wc -l || echo 0)
+          
+          echo "has_go_files=$HAS_GO_FILES" >> $GITHUB_OUTPUT
+          echo "has_sql_files=$HAS_SQL_FILES" >> $GITHUB_OUTPUT
+          echo "has_docker_files=$HAS_DOCKER_FILES" >> $GITHUB_OUTPUT
 
       - name: 🏷️ Add area labels
         uses: actions/github-script@v7
@@ -317,6 +331,80 @@ jobs:
                 issue_number: context.issue.number,
                 body: analysisComment
               });
+            }
+
+      - name: 💬 Comment label summary
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Get current labels on the PR
+            const { data: currentLabels } = await github.rest.issues.listLabelsOnIssue({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+            
+            // Filter for auto-applied labels
+            const autoLabels = currentLabels.filter(label => 
+              label.name.startsWith('area:') || 
+              label.name.startsWith('size:') ||
+              label.name.startsWith('type:')
+            );
+            
+            if (autoLabels.length > 0) {
+              const areaLabels = autoLabels.filter(l => l.name.startsWith('area:')).map(l => `\`${l.name}\``);
+              const sizeLabels = autoLabels.filter(l => l.name.startsWith('size:')).map(l => `\`${l.name}\``);
+              const typeLabels = autoLabels.filter(l => l.name.startsWith('type:')).map(l => `\`${l.name}\``);
+              
+              let comment = `## 🏷️ Auto-Labels Applied\n\n`;
+              comment += `I've automatically analyzed this PR and applied the following labels:\n\n`;
+              
+              if (areaLabels.length > 0) {
+                comment += `**📂 Code Areas:** ${areaLabels.join(', ')}\n`;
+              }
+              if (sizeLabels.length > 0) {
+                comment += `**📏 PR Size:** ${sizeLabels.join(', ')}\n`;
+              }
+              if (typeLabels.length > 0) {
+                comment += `**🎯 PR Type:** ${typeLabels.join(', ')}\n`;
+              }
+              
+              comment += `\n📊 **PR Stats:**\n`;
+              comment += `- 📁 Files changed: ${{ steps.changed-files.outputs.total_files }}\n`;
+              comment += `- ➕ Lines added: ${{ steps.changed-files.outputs.lines_added }}\n`;
+              comment += `- ➖ Lines deleted: ${{ steps.changed-files.outputs.lines_deleted }}\n`;
+              
+              comment += `\n---\n`;
+              comment += `<sub>🤖 Auto-labeling • Labels will help reviewers understand the scope of changes</sub>`;
+              
+              // Check if we already have an auto-labeling comment
+              const { data: comments } = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number
+              });
+              
+              const existingComment = comments.find(c => 
+                c.user.type === 'Bot' && c.body.includes('🏷️ Auto-Labels Applied')
+              );
+              
+              if (existingComment) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existingComment.id,
+                  body: comment
+                });
+                console.log('✅ Updated existing auto-labeling comment');
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body: comment
+                });
+                console.log('✅ Created new auto-labeling comment');
+              }
             }
 
       - name: ✅ Auto-labeling complete

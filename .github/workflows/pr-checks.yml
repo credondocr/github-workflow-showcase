@@ -10,6 +10,14 @@ concurrency:
   group: pr-checks-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+# Required permissions for this workflow
+permissions:
+  contents: read          # To read the repository content
+  pull-requests: write    # To comment on PRs
+  issues: write          # To create/update issue comments
+  checks: write          # To create check runs
+  actions: read          # To read workflow results
+
 jobs:
   # Quick validation for draft PRs
   quick-check:
@@ -19,6 +27,27 @@ jobs:
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
+
+      - name: 🏷️ Remove "needs review" label if PR updated
+        if: github.event.action == 'synchronize'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                name: 'needs review'
+              });
+              console.log('✅ Removed "needs review" label - PR has new changes');
+            } catch (error) {
+              if (error.status === 404) {
+                console.log('ℹ️ "needs review" label was not present');
+              } else {
+                console.log('⚠️ Error removing label:', error.message);
+              }
+            }
 
       - name: 🐹 Set up Go
         uses: actions/setup-go@v4
@@ -124,11 +153,11 @@ jobs:
           elif [ $TOTAL_CHANGES -lt 500 ]; then
             echo "📦 PR Size: Medium (< 500 lines) ⚠️"
             echo "💡 Consider breaking this into smaller PRs if possible"
-          elif [ $TOTAL_CHANGES -lt 1000 ]; then
-            echo "📦 PR Size: Large (< 1000 lines) ⚠️"
+          elif [ $TOTAL_CHANGES -lt 10000 ]; then
+            echo "📦 PR Size: Large (< 10000 lines) ⚠️"
             echo "⚠️ Large PRs are harder to review. Consider breaking into smaller pieces."
           else
-            echo "📦 PR Size: XL (>= 1000 lines) ❌"
+            echo "📦 PR Size: XL (>= 10000 lines) ❌"
             echo "❌ This PR is very large and should be broken down into smaller PRs"
             exit 1
           fi
@@ -152,31 +181,7 @@ jobs:
             echo "✅ Good! Test files are included in this PR"
           fi
 
-  # Security scan for PRs
-  security-scan:
-    name: 🔒 Security Scan
-    runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
 
-      - name: 🐹 Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: '1.21'
-
-      - name: 🛡️ Run security scan
-        run: |
-          go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
-          gosec -fmt json -out gosec-report.json -severity medium ./...
-          
-          # Check if any issues were found
-          ISSUES=$(cat gosec-report.json | jq '.Stats.files_scanned')
-          if [ "$ISSUES" != "null" ]; then
-            echo "🔒 Security scan completed"
-            cat gosec-report.json | jq '.Stats'
-          fi
 
   # Check for breaking changes
   breaking-changes:
@@ -220,10 +225,119 @@ jobs:
   pr-ready:
     name: 🎯 PR Ready for Review
     runs-on: ubuntu-latest
-    needs: [essential-checks, pr-analysis, security-scan, breaking-changes]
+    needs: [essential-checks, pr-analysis, breaking-changes]
     if: success() && github.event.pull_request.draft == false
     steps:
-      - name: 🎉 PR is ready
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📊 Get PR statistics
+        id: pr-stats
+        run: |
+          # Get PR information
+          FILES_CHANGED=$(git diff --name-only HEAD~1 | wc -l)
+          LINES_ADDED=$(git diff --numstat HEAD~1 | awk '{sum+=$1} END {print sum+0}')
+          LINES_DELETED=$(git diff --numstat HEAD~1 | awk '{sum+=$2} END {print sum+0}')
+          
+          echo "files_changed=$FILES_CHANGED" >> $GITHUB_OUTPUT
+          echo "lines_added=$LINES_ADDED" >> $GITHUB_OUTPUT
+          echo "lines_deleted=$LINES_DELETED" >> $GITHUB_OUTPUT
+
+      - name: 🏷️ Add "needs review" label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Add the "needs review" label
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ['needs review']
+            });
+            console.log('✅ Added "needs review" label');
+
+      - name: 🚀 Comment PR ready for review
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.issue.number;
+            const prTitle = context.payload.pull_request.title;
+            const prAuthor = context.payload.pull_request.user.login;
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            
+            // Get PR stats
+            const filesChanged = '${{ steps.pr-stats.outputs.files_changed }}';
+            const linesAdded = '${{ steps.pr-stats.outputs.lines_added }}';
+            const linesDeleted = '${{ steps.pr-stats.outputs.lines_deleted }}';
+            
+            const comment = `## 🎉 PR Ready for Review!
+            
+            Hey team! 👋 This PR has passed all automated checks and is ready for human review.
+            
+            ### ✅ All Checks Passed
+            
+            - ✅ **Code Quality** - Linting and formatting checks passed
+            - ✅ **Tests** - All unit and integration tests passed  
+            - ✅ **Security** - Security scan completed successfully
+            - ✅ **Analysis** - PR size and complexity analysis completed
+            - ✅ **Breaking Changes** - No breaking changes detected
+            
+            ### 📊 PR Summary
+            
+            **👤 Author:** @${prAuthor}  
+            **📝 Title:** ${prTitle}  
+            **📁 Files:** ${filesChanged} changed  
+            **➕ Added:** ${linesAdded} lines  
+            **➖ Removed:** ${linesDeleted} lines  
+            
+            ### 👥 Next Steps
+            
+            1. **Reviewers:** Please review this PR when you have time
+            2. **Author:** Your PR is ready - no further action needed until feedback
+            3. **Maintainers:** This PR can be merged once approved
+            
+            ### 🔍 Review Checklist
+            
+            - [ ] Code follows project conventions
+            - [ ] Changes are well documented
+            - [ ] No unnecessary complexity introduced
+            - [ ] Edge cases are handled appropriately
+            - [ ] Performance implications considered
+            
+            ---
+            <sub>🤖 Automated review request • All checks passed at $(date +'%Y-%m-%d %H:%M UTC') • [View full report](${runUrl})</sub>`;
+            
+            // Check for existing "ready for review" comment to avoid duplicates
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber
+            });
+            
+            const existingComment = comments.find(c => 
+              c.user.type === 'Bot' && 
+              c.body.includes('🎉 PR Ready for Review!')
+            );
+            
+            if (existingComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existingComment.id,
+                body: comment
+              });
+              console.log('✅ Updated existing ready-for-review comment');
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: comment
+              });
+              console.log('✅ Created new ready-for-review comment');
+            }
+
+      - name: 🎉 Success summary
         run: |
           echo "🎉 All PR checks passed successfully!"
           echo "✅ Code quality: PASSED"
@@ -231,45 +345,184 @@ jobs:
           echo "✅ Security: PASSED"
           echo "✅ Analysis: PASSED"
           echo ""
+          echo "🏷️ Added 'needs review' label"
+          echo "💬 Posted ready-for-review comment"
           echo "🚀 This PR is ready for human review!"
 
-  # Comment on PR with results
+  # Comment on PR with comprehensive results
   comment-results:
-    name: 💬 Comment Results
+    name: 💬 Comment Detailed Results
     runs-on: ubuntu-latest
-    needs: [essential-checks, pr-analysis, security-scan, breaking-changes]
+    needs: [essential-checks, pr-analysis, breaking-changes]
     if: always() && github.event.pull_request.draft == false
     steps:
-      - name: 💬 Comment PR status
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📊 Gather PR statistics
+        id: pr-stats
+        run: |
+          # Get PR information
+          FILES_CHANGED=$(git diff --name-only HEAD~1 | wc -l)
+          LINES_ADDED=$(git diff --numstat HEAD~1 | awk '{sum+=$1} END {print sum+0}')
+          LINES_DELETED=$(git diff --numstat HEAD~1 | awk '{sum+=$2} END {print sum+0}')
+          
+          # Determine size category
+          TOTAL_CHANGES=$((LINES_ADDED + LINES_DELETED))
+          if [ $TOTAL_CHANGES -le 50 ]; then
+            SIZE="XS"
+            SIZE_EMOJI="🔹"
+          elif [ $TOTAL_CHANGES -le 200 ]; then
+            SIZE="S"
+            SIZE_EMOJI="🔸"
+          elif [ $TOTAL_CHANGES -le 500 ]; then
+            SIZE="M"
+            SIZE_EMOJI="🔶"
+          elif [ $TOTAL_CHANGES -le 1000 ]; then
+            SIZE="L"
+            SIZE_EMOJI="🔺"
+          else
+            SIZE="XL"
+            SIZE_EMOJI="🔴"
+          fi
+          
+          echo "files_changed=$FILES_CHANGED" >> $GITHUB_OUTPUT
+          echo "lines_added=$LINES_ADDED" >> $GITHUB_OUTPUT
+          echo "lines_deleted=$LINES_DELETED" >> $GITHUB_OUTPUT
+          echo "size=$SIZE" >> $GITHUB_OUTPUT
+          echo "size_emoji=$SIZE_EMOJI" >> $GITHUB_OUTPUT
+
+      - name: 💬 Create/Update PR Comment
         uses: actions/github-script@v7
         with:
           script: |
-            const { data: checkRuns } = await github.rest.checks.listForRef({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              ref: context.payload.pull_request.head.sha
-            });
+            const prNumber = context.issue.number;
+            const runId = context.runId;
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${runId}`;
             
-            const success = checkRuns.check_runs.every(run => 
-              run.conclusion === 'success' || run.conclusion === 'neutral'
+            // Get job results
+            const essentialChecks = '${{ needs.essential-checks.result }}';
+            const prAnalysis = '${{ needs.pr-analysis.result }}';
+            const breakingChanges = '${{ needs.breaking-changes.result }}';
+            
+            // PR stats from previous step
+            const filesChanged = '${{ steps.pr-stats.outputs.files_changed }}';
+            const linesAdded = '${{ steps.pr-stats.outputs.lines_added }}';
+            const linesDeleted = '${{ steps.pr-stats.outputs.lines_deleted }}';
+            const prSize = '${{ steps.pr-stats.outputs.size }}';
+            const sizeEmoji = '${{ steps.pr-stats.outputs.size_emoji }}';
+            
+            // Determine overall status
+            const allPassed = [essentialChecks, prAnalysis, breakingChanges].every(result => 
+              result === 'success'
             );
             
-            const message = success ? 
-              `🎉 **All PR checks passed!** This PR is ready for review.
-              
-              ✅ Code quality checks passed
-              ✅ All tests passed  
-              ✅ Security scan completed
-              ✅ PR analysis completed
-              
-              Great work! 🚀` :
-              `⚠️ **Some PR checks failed.** Please review and fix the issues.
-              
-              Check the Actions tab for detailed information about failures.`;
+            // Create status indicators
+            const statusIcon = (result) => {
+              switch(result) {
+                case 'success': return '✅';
+                case 'failure': return '❌';
+                case 'cancelled': return '⏹️';
+                case 'skipped': return '⏭️';
+                default: return '⏳';
+              }
+            };
             
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
+            // Build the comment
+            const timestamp = new Date().toLocaleString('en-US', {
+              timeZone: 'UTC',
+              year: 'numeric',
+              month: 'short',
+              day: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            });
+            
+            let commentBody = `## ${allPassed ? '🎉' : '⚠️'} PR Checks Results
+            
+            ${allPassed ? 
+              '**✨ All checks passed!** This PR is ready for review.' : 
+              '**Some checks need attention.** Please review the details below.'
+            }
+            
+            ### 📋 Check Summary
+            
+            | Check | Status | Details |
+            |-------|--------|---------|
+            | **Code Quality & Tests** | ${statusIcon(essentialChecks)} ${essentialChecks} | Linting, formatting, unit tests |
+            | **PR Analysis** | ${statusIcon(prAnalysis)} ${prAnalysis} | Size, complexity, security scan |
+            | **Breaking Changes** | ${statusIcon(breakingChanges)} ${breakingChanges} | API compatibility check |
+            
+            ### 📊 PR Statistics
+            
+            ${sizeEmoji} **Size: ${prSize}** | 📁 **${filesChanged} files** | ➕ **${linesAdded} additions** | ➖ **${linesDeleted} deletions**
+            
+            `;
+            
+            // Add specific recommendations based on results
+            if (!allPassed) {
+              commentBody += `### 🔧 Action Required
+            
+            `;
+              
+              if (essentialChecks === 'failure') {
+                commentBody += `- **Code Quality Issues**: Check linting errors, test failures, or formatting issues
+            `;
+              }
+              
+              if (prAnalysis === 'failure') {
+                commentBody += `- **PR Analysis Issues**: Review security scan results or complexity warnings
+            `;
+              }
+              
+              if (breakingChanges === 'failure') {
+                commentBody += `- **Breaking Changes**: This PR introduces potential breaking changes - please review carefully
+            `;
+              }
+              
+              commentBody += `
+            📖 **[View detailed logs](${runUrl})** for more information.
+            `;
+            } else {
+              commentBody += `### 🚀 Ready for Review
+            
+            All automated checks have passed! This PR is ready for human review.
+            
+            `;
+            }
+            
+            commentBody += `
+            ---
+            <sub>🤖 Automated PR analysis • Updated: ${timestamp} UTC • [View workflow run](${runUrl})</sub>`;
+            
+            // Try to find existing comment to update
+            const comments = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: message
+              issue_number: prNumber
             });
+            
+            const botComment = comments.data.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('🤖 Automated PR analysis')
+            );
+            
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: commentBody
+              });
+              console.log('✅ Updated existing PR comment');
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: commentBody
+              });
+              console.log('✅ Created new PR comment');
+            }

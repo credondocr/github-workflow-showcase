@@ -3,6 +3,7 @@ package controllers
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -192,5 +193,82 @@ func (uc *UserController) HealthCheck(c *gin.Context) {
 		"success": true,
 		"message": "API is working correctly",
 		"version": "1.0.0",
+	})
+}
+
+// GetStats handles GET /api/v1/users/stats - get user statistics.
+func (uc *UserController) GetStats(c *gin.Context) {
+	users, err := uc.userRepo.GetAll()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "Failed to retrieve users",
+			"message": err.Error(),
+		})
+
+		return
+	}
+
+	totalUsers := len(users)
+
+	// Calculate age statistics
+	var totalAge int
+
+	var minAge, maxAge int
+
+	ageRanges := map[string]int{
+		"18-25": 0,
+		"26-35": 0,
+		"36-50": 0,
+		"51+":   0,
+	}
+
+	if totalUsers > 0 {
+		minAge = users[0].Age
+		maxAge = users[0].Age
+
+		for _, user := range users {
+			totalAge += user.Age
+
+			if user.Age < minAge {
+				minAge = user.Age
+			}
+
+			if user.Age > maxAge {
+				maxAge = user.Age
+			}
+
+			// Categorize by age range
+			switch {
+			case user.Age >= 18 && user.Age <= 25:
+				ageRanges["18-25"]++
+			case user.Age >= 26 && user.Age <= 35:
+				ageRanges["26-35"]++
+			case user.Age >= 36 && user.Age <= 50:
+				ageRanges["36-50"]++
+			default:
+				ageRanges["51+"]++
+			}
+		}
+	}
+
+	var averageAge float64
+	if totalUsers > 0 {
+		averageAge = float64(totalAge) / float64(totalUsers)
+	}
+
+	stats := gin.H{
+		"total_users":  totalUsers,
+		"average_age":  averageAge,
+		"min_age":      minAge,
+		"max_age":      maxAge,
+		"age_ranges":   ageRanges,
+		"generated_at": time.Now().Format("2006-01-02 15:04:05"),
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "User statistics retrieved successfully",
+		"data":    stats,
 	})
 }

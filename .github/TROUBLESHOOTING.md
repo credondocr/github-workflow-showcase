@@ -33,6 +33,40 @@ uses: actions/download-artifact@v4
 - Mejor performance y compatibilidad
 - APIs mejoradas para manejo de artifacts
 
+### ❌ Error: Invalid format in GITHUB_OUTPUT
+
+**Problema:**
+```
+Error: Unable to process file command 'output' successfully.
+Error: Invalid format '0'
+```
+
+**Causa:** 
+Sintaxis incorrecta en comandos `echo >> $GITHUB_OUTPUT` con comandos complejos que pueden fallar.
+
+**Problema original:**
+```bash
+# ❌ Problemático - grep -c puede fallar con exit code 1
+echo "count=$(git diff | grep -c pattern || echo 0)" >> $GITHUB_OUTPUT
+```
+
+**Solución:**
+```bash
+# ✅ Correcto - usar variables temporales
+COUNT=$(git diff | grep pattern | wc -l || echo 0)
+echo "count=$COUNT" >> $GITHUB_OUTPUT
+
+# O usar alternativa más robusta:
+COUNT=$(git diff | grep -c pattern 2>/dev/null || echo 0)
+echo "count=$COUNT" >> $GITHUB_OUTPUT
+```
+
+**Mejores prácticas para GITHUB_OUTPUT:**
+- Usar variables temporales para comandos complejos
+- Evitar `grep -c` dentro de `$(...)` 
+- Usar `wc -l` en lugar de `grep -c`
+- Manejar exit codes con `|| echo 0`
+
 ### ❌ Error: Cannot find module 'js-yaml'
 
 **Problema:**
@@ -150,22 +184,97 @@ script: |
   }
 ```
 
-### ❌ Error: Permission denied
+### ❌ Error: Resource not accessible by integration
 
 **Problema:**
 ```
-Error: Resource not accessible by integration
+RequestError [HttpError]: Resource not accessible by integration
+status: 403
+url: 'https://api.github.com/repos/.../issues/.../comments'
 ```
 
-**Solución:**
+**Causa:** 
+El `GITHUB_TOKEN` no tiene permisos suficientes para acceder al recurso (comentar en PRs, crear labels, etc.).
+
+**Problema original:**
 ```yaml
+# ❌ Sin permisos definidos
+name: My Workflow
+on: [pull_request]
+jobs:
+  my-job:
+    runs-on: ubuntu-latest
+    steps: # ... intentará comentar pero fallará
+```
+
+**Soluciones:**
+
+#### ✅ Definir permisos a nivel de workflow
+```yaml
+name: My Workflow
+on: [pull_request]
+
+permissions:
+  contents: read          # Para leer el código
+  pull-requests: write    # Para comentar en PRs
+  issues: write          # Para comentar en issues
+  actions: read          # Para leer resultados de workflows
+  checks: write          # Para crear check runs
+
+jobs:
+  my-job:
+    runs-on: ubuntu-latest
+    steps: # ... ahora funcionará
+```
+
+#### ✅ Definir permisos a nivel de job
+```yaml
+name: My Workflow
+on: [pull_request]
+
+jobs:
+  my-job:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps: # ... funcionará solo para este job
+```
+
+#### ✅ Permisos específicos según el uso
+```yaml
+# Para workflows que solo leen código
+permissions:
+  contents: read
+
+# Para workflows que comentan en PRs
 permissions:
   contents: read
   pull-requests: write
   issues: write
+
+# Para workflows que crean releases
+permissions:
+  contents: write
+  pull-requests: write
   actions: read
-  checks: write
+
+# Para workflows que manejan labels
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
 ```
+
+**Permisos disponibles:**
+- `contents`: read/write - Acceso al código del repositorio
+- `pull-requests`: read/write - Acceso a PRs y comentarios
+- `issues`: read/write - Acceso a issues y comentarios  
+- `actions`: read/write - Acceso a workflows y artifacts
+- `checks`: read/write - Acceso a check runs y status
+- `deployments`: read/write - Acceso a deployments
+- `packages`: read/write - Acceso a packages/registry
 
 ### ❌ Error: Workflow not triggering
 

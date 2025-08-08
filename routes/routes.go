@@ -50,6 +50,7 @@ func SetupRouter() *gin.Engine {
 		// User routes
 		users := v1.Group("/users")
 		users.GET("", userController.GetUsers)          // GET /api/v1/users
+		users.GET("/stats", userController.GetStats)    // GET /api/v1/users/stats
 		users.GET("/:id", userController.GetUser)       // GET /api/v1/users/:id
 		users.POST("", userController.CreateUser)       // POST /api/v1/users
 		users.PUT("/:id", userController.UpdateUser)    // PUT /api/v1/users/:id
@@ -64,6 +65,7 @@ func SetupRouter() *gin.Engine {
 			"endpoints": gin.H{
 				"health":     "GET /health",
 				"users":      "GET /api/v1/users",
+				"userStats":  "GET /api/v1/users/stats",
 				"user":       "GET /api/v1/users/:id",
 				"createUser": "POST /api/v1/users",
 				"updateUser": "PUT /api/v1/users/:id",
