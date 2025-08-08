@@ -1,0 +1,275 @@
+name: PR Checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [ main, develop ]
+
+# Ensure only one workflow runs at a time for the same PR
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # Quick validation for draft PRs
+  quick-check:
+    name: ⚡ Quick Validation
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🐹 Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+          cache: true
+
+      - name: 📦 Download dependencies
+        run: go mod download
+
+      - name: 🔧 Verify go mod tidy
+        run: |
+          go mod tidy
+          if ! git diff --exit-code go.mod go.sum; then
+            echo "❌ go.mod or go.sum is not tidy. Please run 'go mod tidy' and commit the changes."
+            exit 1
+          fi
+
+      - name: 🏗️ Quick build check
+        run: go build -v ./...
+
+  # Essential checks that must pass
+  essential-checks:
+    name: ✅ Essential Checks
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    needs: quick-check
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🐹 Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+          cache: true
+
+      - name: 📦 Download dependencies
+        run: go mod download
+
+      - name: 🎨 Format check
+        run: |
+          if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
+            echo "❌ Code is not properly formatted. Files that need formatting:"
+            gofmt -s -l .
+            echo "Please run 'gofmt -s -w .' to fix formatting issues."
+            exit 1
+          fi
+          echo "✅ Code formatting is correct"
+
+      - name: 🔍 Basic linting
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=3m --fast
+
+      - name: 🧪 Run tests
+        run: |
+          echo "🧪 Running unit tests..."
+          go test -v -race ./...
+          echo "✅ All tests passed"
+
+      - name: 🧪 Run Ginkgo tests
+        run: |
+          echo "🧪 Running Ginkgo BDD tests..."
+          go test -v ./tests/
+          echo "✅ All Ginkgo tests passed"
+
+  # PR size and complexity check
+  pr-analysis:
+    name: 📊 PR Analysis
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 📊 Analyze PR size
+        run: |
+          # Get the base branch
+          BASE_SHA=${{ github.event.pull_request.base.sha }}
+          HEAD_SHA=${{ github.event.pull_request.head.sha }}
+          
+          # Count changes
+          LINES_ADDED=$(git diff --numstat $BASE_SHA..$HEAD_SHA | awk '{sum+=$1} END {print sum+0}')
+          LINES_DELETED=$(git diff --numstat $BASE_SHA..$HEAD_SHA | awk '{sum+=$2} END {print sum+0}')
+          FILES_CHANGED=$(git diff --name-only $BASE_SHA..$HEAD_SHA | wc -l)
+          
+          echo "📊 PR Analysis Results:"
+          echo "📁 Files changed: $FILES_CHANGED"
+          echo "➕ Lines added: $LINES_ADDED"
+          echo "➖ Lines deleted: $LINES_DELETED"
+          echo "📏 Net change: $((LINES_ADDED - LINES_DELETED))"
+          
+          # Size classification
+          TOTAL_CHANGES=$((LINES_ADDED + LINES_DELETED))
+          if [ $TOTAL_CHANGES -lt 50 ]; then
+            echo "📦 PR Size: XS (< 50 lines) ✅"
+          elif [ $TOTAL_CHANGES -lt 200 ]; then
+            echo "📦 PR Size: Small (< 200 lines) ✅"
+          elif [ $TOTAL_CHANGES -lt 500 ]; then
+            echo "📦 PR Size: Medium (< 500 lines) ⚠️"
+            echo "💡 Consider breaking this into smaller PRs if possible"
+          elif [ $TOTAL_CHANGES -lt 1000 ]; then
+            echo "📦 PR Size: Large (< 1000 lines) ⚠️"
+            echo "⚠️ Large PRs are harder to review. Consider breaking into smaller pieces."
+          else
+            echo "📦 PR Size: XL (>= 1000 lines) ❌"
+            echo "❌ This PR is very large and should be broken down into smaller PRs"
+            exit 1
+          fi
+
+      - name: 🔍 Check for test files
+        run: |
+          BASE_SHA=${{ github.event.pull_request.base.sha }}
+          HEAD_SHA=${{ github.event.pull_request.head.sha }}
+          
+          # Check if any Go files were added/modified
+          GO_FILES_CHANGED=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep '\.go$' | grep -v '_test\.go$' | wc -l)
+          TEST_FILES_CHANGED=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep '_test\.go$' | wc -l)
+          
+          echo "📁 Go files changed: $GO_FILES_CHANGED"
+          echo "🧪 Test files changed: $TEST_FILES_CHANGED"
+          
+          if [ $GO_FILES_CHANGED -gt 0 ] && [ $TEST_FILES_CHANGED -eq 0 ]; then
+            echo "⚠️ Warning: Go code was modified but no test files were updated"
+            echo "💡 Consider adding or updating tests for your changes"
+          else
+            echo "✅ Good! Test files are included in this PR"
+          fi
+
+  # Security scan for PRs
+  security-scan:
+    name: 🔒 Security Scan
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🐹 Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: 🛡️ Run security scan
+        run: |
+          go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
+          gosec -fmt json -out gosec-report.json -severity medium ./...
+          
+          # Check if any issues were found
+          ISSUES=$(cat gosec-report.json | jq '.Stats.files_scanned')
+          if [ "$ISSUES" != "null" ]; then
+            echo "🔒 Security scan completed"
+            cat gosec-report.json | jq '.Stats'
+          fi
+
+  # Check for breaking changes
+  breaking-changes:
+    name: 💥 Breaking Changes Check
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🔍 Check for potential breaking changes
+        run: |
+          BASE_SHA=${{ github.event.pull_request.base.sha }}
+          HEAD_SHA=${{ github.event.pull_request.head.sha }}
+          
+          echo "🔍 Checking for potential breaking changes..."
+          
+          # Check for deleted exported functions/types
+          DELETED_EXPORTS=$(git diff $BASE_SHA..$HEAD_SHA | grep "^-" | grep -E "^-func [A-Z]|^-type [A-Z]|^-var [A-Z]|^-const [A-Z]" | wc -l)
+          
+          # Check for modified function signatures
+          MODIFIED_SIGNATURES=$(git diff $BASE_SHA..$HEAD_SHA | grep -E "^[-+]func [A-Z]" | wc -l)
+          
+          if [ $DELETED_EXPORTS -gt 0 ]; then
+            echo "⚠️ Warning: $DELETED_EXPORTS exported items may have been deleted"
+            echo "💡 This could be a breaking change. Please verify backwards compatibility."
+          fi
+          
+          if [ $MODIFIED_SIGNATURES -gt 0 ]; then
+            echo "⚠️ Warning: $MODIFIED_SIGNATURES function signatures may have been modified"
+            echo "💡 Please ensure these changes are backwards compatible."
+          fi
+          
+          if [ $DELETED_EXPORTS -eq 0 ] && [ $MODIFIED_SIGNATURES -eq 0 ]; then
+            echo "✅ No obvious breaking changes detected"
+          fi
+
+  # Final status check
+  pr-ready:
+    name: 🎯 PR Ready for Review
+    runs-on: ubuntu-latest
+    needs: [essential-checks, pr-analysis, security-scan, breaking-changes]
+    if: success() && github.event.pull_request.draft == false
+    steps:
+      - name: 🎉 PR is ready
+        run: |
+          echo "🎉 All PR checks passed successfully!"
+          echo "✅ Code quality: PASSED"
+          echo "✅ Tests: PASSED"
+          echo "✅ Security: PASSED"
+          echo "✅ Analysis: PASSED"
+          echo ""
+          echo "🚀 This PR is ready for human review!"
+
+  # Comment on PR with results
+  comment-results:
+    name: 💬 Comment Results
+    runs-on: ubuntu-latest
+    needs: [essential-checks, pr-analysis, security-scan, breaking-changes]
+    if: always() && github.event.pull_request.draft == false
+    steps:
+      - name: 💬 Comment PR status
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: checkRuns } = await github.rest.checks.listForRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: context.payload.pull_request.head.sha
+            });
+            
+            const success = checkRuns.check_runs.every(run => 
+              run.conclusion === 'success' || run.conclusion === 'neutral'
+            );
+            
+            const message = success ? 
+              `🎉 **All PR checks passed!** This PR is ready for review.
+              
+              ✅ Code quality checks passed
+              ✅ All tests passed  
+              ✅ Security scan completed
+              ✅ PR analysis completed
+              
+              Great work! 🚀` :
+              `⚠️ **Some PR checks failed.** Please review and fix the issues.
+              
+              Check the Actions tab for detailed information about failures.`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: message
+            });

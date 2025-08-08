@@ -1,0 +1,153 @@
+# GitHub Labels Configuration
+# This file defines the labels that will be automatically created and managed
+# by the auto-labeler workflow
+
+# Area Labels - Based on code structure
+- name: "area: models"
+  color: "0E8A16"
+  description: "Changes to data models and business logic"
+
+- name: "area: controllers"
+  color: "1D76DB"
+  description: "Changes to HTTP request handlers and controller logic"
+
+- name: "area: routes"
+  color: "B60205"
+  description: "Changes to API route configuration and middleware"
+
+- name: "area: tests"
+  color: "F9C513"
+  description: "Changes to test files and testing infrastructure"
+
+- name: "area: ci/cd"
+  color: "5319E7"
+  description: "Changes to CI/CD workflows and automation"
+
+- name: "area: documentation"
+  color: "006B75"
+  description: "Changes to documentation files (README, docs, etc.)"
+
+- name: "area: dependencies"
+  color: "E99695"
+  description: "Changes to project dependencies (go.mod, go.sum)"
+
+- name: "area: configuration"
+  color: "C2E0C6"
+  description: "Changes to configuration files (YAML, JSON, TOML)"
+
+- name: "area: core"
+  color: "D93F0B"
+  description: "Changes to core application files (main.go)"
+
+- name: "area: docker"
+  color: "2496ED"
+  description: "Changes to Docker configuration and containerization"
+
+# Size Labels - Based on PR impact
+- name: "size: XS"
+  color: "00FF00"
+  description: "Extra small PR (< 10 lines changed)"
+
+- name: "size: S"
+  color: "7CFC00"
+  description: "Small PR (< 30 lines changed)"
+
+- name: "size: M"
+  color: "FFD700"
+  description: "Medium PR (< 100 lines changed)"
+
+- name: "size: L"
+  color: "FF8C00"
+  description: "Large PR (< 500 lines changed)"
+
+- name: "size: XL"
+  color: "FF0000"
+  description: "Extra large PR (>= 500 lines changed)"
+
+# Type Labels - Based on change patterns
+- name: "type: feature"
+  color: "84B6EB"
+  description: "New feature implementation"
+
+- name: "type: bugfix"
+  color: "D73A4A"
+  description: "Bug fix or error correction"
+
+- name: "type: enhancement"
+  color: "A2EEEF"
+  description: "Improvement to existing functionality"
+
+- name: "type: refactor"
+  color: "7057FF"
+  description: "Code refactoring without functional changes"
+
+- name: "type: performance"
+  color: "FF6B6B"
+  description: "Performance improvements"
+
+- name: "type: security"
+  color: "B60205"
+  description: "Security-related changes"
+
+- name: "type: breaking"
+  color: "FF0000"
+  description: "Breaking changes that affect API compatibility"
+
+# Status Labels
+- name: "needs tests"
+  color: "FBCA04"
+  description: "PR needs additional test coverage"
+
+- name: "needs review"
+  color: "0075CA"
+  description: "PR is ready for code review"
+
+- name: "work in progress"
+  color: "FEF2C0"
+  description: "PR is still being worked on"
+
+- name: "ready to merge"
+  color: "0E8A16"
+  description: "PR has been reviewed and is ready to merge"
+
+# Priority Labels
+- name: "priority: critical"
+  color: "B60205"
+  description: "Critical priority - needs immediate attention"
+
+- name: "priority: high"
+  color: "D93F0B"
+  description: "High priority"
+
+- name: "priority: medium"
+  color: "FBCA04"
+  description: "Medium priority"
+
+- name: "priority: low"
+  color: "0E8A16"
+  description: "Low priority"
+
+# Special Labels
+- name: "good first issue"
+  color: "7057FF"
+  description: "Good for newcomers to the project"
+
+- name: "help wanted"
+  color: "008672"
+  description: "Extra attention is needed"
+
+- name: "duplicate"
+  color: "CFD3D7"
+  description: "This issue or PR already exists"
+
+- name: "invalid"
+  color: "E4E669"
+  description: "This doesn't seem right"
+
+- name: "question"
+  color: "D876E3"
+  description: "Further information is requested"
+
+- name: "wontfix"
+  color: "FFFFFF"
+  description: "This will not be worked on"

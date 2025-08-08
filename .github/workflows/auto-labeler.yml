@@ -1,0 +1,330 @@
+name: Auto Labeler
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [ main, develop ]
+
+jobs:
+  auto-label:
+    name: 🏷️ Auto Label PR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🔍 Get changed files
+        id: changed-files
+        run: |
+          # Get the base and head commit SHAs
+          BASE_SHA=${{ github.event.pull_request.base.sha }}
+          HEAD_SHA=${{ github.event.pull_request.head.sha }}
+          
+          # Get list of changed files
+          git diff --name-only $BASE_SHA..$HEAD_SHA > changed_files.txt
+          
+          echo "Changed files:"
+          cat changed_files.txt
+          
+          # Count changes by area
+          echo "models_changed=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -c '^models/' || echo 0)" >> $GITHUB_OUTPUT
+          echo "controllers_changed=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -c '^controllers/' || echo 0)" >> $GITHUB_OUTPUT
+          echo "routes_changed=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -c '^routes/' || echo 0)" >> $GITHUB_OUTPUT
+          echo "tests_changed=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -c -E '(^tests/|_test\.go$)' || echo 0)" >> $GITHUB_OUTPUT
+          echo "github_changed=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -c '^\.github/' || echo 0)" >> $GITHUB_OUTPUT
+          echo "docs_changed=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -c -E '\.(md|txt)$' || echo 0)" >> $GITHUB_OUTPUT
+          echo "deps_changed=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -c -E '^(go\.(mod|sum)|Dockerfile)$' || echo 0)" >> $GITHUB_OUTPUT
+          echo "config_changed=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -c -E '\.(yml|yaml|json|toml)$' || echo 0)" >> $GITHUB_OUTPUT
+          echo "main_changed=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -c '^main\.go$' || echo 0)" >> $GITHUB_OUTPUT
+          
+          # Calculate total changes
+          TOTAL_FILES=$(git diff --name-only $BASE_SHA..$HEAD_SHA | wc -l)
+          LINES_ADDED=$(git diff --numstat $BASE_SHA..$HEAD_SHA | awk '{sum+=$1} END {print sum+0}')
+          LINES_DELETED=$(git diff --numstat $BASE_SHA..$HEAD_SHA | awk '{sum+=$2} END {print sum+0}')
+          
+          echo "total_files=$TOTAL_FILES" >> $GITHUB_OUTPUT
+          echo "lines_added=$LINES_ADDED" >> $GITHUB_OUTPUT
+          echo "lines_deleted=$LINES_DELETED" >> $GITHUB_OUTPUT
+          
+          # Check for specific file types
+          echo "has_go_files=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -c '\.go$' || echo 0)" >> $GITHUB_OUTPUT
+          echo "has_sql_files=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -c '\.sql$' || echo 0)" >> $GITHUB_OUTPUT
+          echo "has_docker_files=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -c -E '^(Dockerfile|\.dockerignore)$' || echo 0)" >> $GITHUB_OUTPUT
+
+      - name: 🏷️ Add area labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const labelsToAdd = [];
+            const labelsToRemove = [];
+            
+            // Define label mapping based on changed files
+            const labelMappings = [
+              {
+                condition: ${{ steps.changed-files.outputs.models_changed }} > 0,
+                label: 'area: models',
+                color: '0E8A16',
+                description: 'Changes to data models'
+              },
+              {
+                condition: ${{ steps.changed-files.outputs.controllers_changed }} > 0,
+                label: 'area: controllers',
+                color: '1D76DB',
+                description: 'Changes to controller logic'
+              },
+              {
+                condition: ${{ steps.changed-files.outputs.routes_changed }} > 0,
+                label: 'area: routes',
+                color: 'B60205',
+                description: 'Changes to route configuration'
+              },
+              {
+                condition: ${{ steps.changed-files.outputs.tests_changed }} > 0,
+                label: 'area: tests',
+                color: 'F9C513',
+                description: 'Changes to test files'
+              },
+              {
+                condition: ${{ steps.changed-files.outputs.github_changed }} > 0,
+                label: 'area: ci/cd',
+                color: '5319E7',
+                description: 'Changes to CI/CD workflows'
+              },
+              {
+                condition: ${{ steps.changed-files.outputs.docs_changed }} > 0,
+                label: 'area: documentation',
+                color: '006B75',
+                description: 'Changes to documentation'
+              },
+              {
+                condition: ${{ steps.changed-files.outputs.deps_changed }} > 0,
+                label: 'area: dependencies',
+                color: 'E99695',
+                description: 'Changes to dependencies'
+              },
+              {
+                condition: ${{ steps.changed-files.outputs.config_changed }} > 0,
+                label: 'area: configuration',
+                color: 'C2E0C6',
+                description: 'Changes to configuration files'
+              },
+              {
+                condition: ${{ steps.changed-files.outputs.main_changed }} > 0,
+                label: 'area: core',
+                color: 'D93F0B',
+                description: 'Changes to core application'
+              }
+            ];
+            
+            // Add size labels
+            const totalChanges = ${{ steps.changed-files.outputs.lines_added }} + ${{ steps.changed-files.outputs.lines_deleted }};
+            if (totalChanges < 10) {
+              labelMappings.push({
+                condition: true,
+                label: 'size: XS',
+                color: '00FF00',
+                description: 'Extra small PR (< 10 lines)'
+              });
+            } else if (totalChanges < 30) {
+              labelMappings.push({
+                condition: true,
+                label: 'size: S',
+                color: '7CFC00',
+                description: 'Small PR (< 30 lines)'
+              });
+            } else if (totalChanges < 100) {
+              labelMappings.push({
+                condition: true,
+                label: 'size: M',
+                color: 'FFD700',
+                description: 'Medium PR (< 100 lines)'
+              });
+            } else if (totalChanges < 500) {
+              labelMappings.push({
+                condition: true,
+                label: 'size: L',
+                color: 'FF8C00',
+                description: 'Large PR (< 500 lines)'
+              });
+            } else {
+              labelMappings.push({
+                condition: true,
+                label: 'size: XL',
+                color: 'FF0000',
+                description: 'Extra large PR (>= 500 lines)'
+              });
+            }
+            
+            // Add type labels based on patterns
+            if (${{ steps.changed-files.outputs.has_go_files }} > 0 && ${{ steps.changed-files.outputs.tests_changed }} === 0) {
+              labelMappings.push({
+                condition: true,
+                label: 'needs tests',
+                color: 'FBCA04',
+                description: 'Missing test coverage'
+              });
+            }
+            
+            if (${{ steps.changed-files.outputs.has_docker_files }} > 0) {
+              labelMappings.push({
+                condition: true,
+                label: 'area: docker',
+                color: '2496ED',
+                description: 'Changes to Docker configuration'
+              });
+            }
+            
+            // Function to ensure label exists
+            async function ensureLabelExists(labelName, color, description) {
+              try {
+                await github.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: labelName
+                });
+              } catch (error) {
+                if (error.status === 404) {
+                  // Label doesn't exist, create it
+                  await github.rest.issues.createLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    name: labelName,
+                    color: color,
+                    description: description
+                  });
+                  console.log(`Created new label: ${labelName}`);
+                }
+              }
+            }
+            
+            // Process labels
+            for (const mapping of labelMappings) {
+              if (mapping.condition) {
+                await ensureLabelExists(mapping.label, mapping.color, mapping.description);
+                labelsToAdd.push(mapping.label);
+              }
+            }
+            
+            // Remove old size labels if new one is being added
+            const sizeLabels = ['size: XS', 'size: S', 'size: M', 'size: L', 'size: XL'];
+            const newSizeLabel = labelsToAdd.find(label => sizeLabels.includes(label));
+            if (newSizeLabel) {
+              const oldSizeLabels = sizeLabels.filter(label => label !== newSizeLabel);
+              labelsToRemove.push(...oldSizeLabels);
+            }
+            
+            // Get current labels
+            const { data: currentLabels } = await github.rest.issues.listLabelsOnIssue({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+            
+            const currentLabelNames = currentLabels.map(label => label.name);
+            
+            // Remove old labels
+            for (const labelToRemove of labelsToRemove) {
+              if (currentLabelNames.includes(labelToRemove)) {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  name: labelToRemove
+                });
+                console.log(`Removed label: ${labelToRemove}`);
+              }
+            }
+            
+            // Add new labels
+            const newLabels = labelsToAdd.filter(label => !currentLabelNames.includes(label));
+            if (newLabels.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: newLabels
+              });
+              console.log(`Added labels: ${newLabels.join(', ')}`);
+            }
+            
+            // Log summary
+            console.log(`\n📊 PR Analysis Summary:`);
+            console.log(`📁 Total files changed: ${{ steps.changed-files.outputs.total_files }}`);
+            console.log(`➕ Lines added: ${{ steps.changed-files.outputs.lines_added }}`);
+            console.log(`➖ Lines deleted: ${{ steps.changed-files.outputs.lines_deleted }}`);
+            console.log(`🏷️ Labels added: ${labelsToAdd.join(', ') || 'None'}`);
+            console.log(`🗑️ Labels removed: ${labelsToRemove.join(', ') || 'None'}`);
+
+      - name: 💬 Comment PR analysis
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Only comment if this is a new PR or if it's been significantly updated
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+            
+            const botComments = comments.filter(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('🤖 **Auto-Labeler Analysis**')
+            );
+            
+            // Only post analysis comment for new PRs or if no bot comment exists
+            if (context.payload.action === 'opened' || botComments.length === 0) {
+              const totalChanges = ${{ steps.changed-files.outputs.lines_added }} + ${{ steps.changed-files.outputs.lines_deleted }};
+              
+              let sizeEmoji = '📦';
+              let sizeText = 'Unknown';
+              if (totalChanges < 10) { sizeEmoji = '🟢'; sizeText = 'Extra Small'; }
+              else if (totalChanges < 30) { sizeEmoji = '🟡'; sizeText = 'Small'; }
+              else if (totalChanges < 100) { sizeEmoji = '🟠'; sizeText = 'Medium'; }
+              else if (totalChanges < 500) { sizeEmoji = '🔴'; sizeText = 'Large'; }
+              else { sizeEmoji = '🟣'; sizeText = 'Extra Large'; }
+              
+              const analysisComment = `🤖 **Auto-Labeler Analysis**
+              
+              ${sizeEmoji} **PR Size**: ${sizeText} (${totalChanges} total line changes)
+              
+              📊 **Changes Summary**:
+              - 📁 Files changed: ${{ steps.changed-files.outputs.total_files }}
+              - ➕ Lines added: ${{ steps.changed-files.outputs.lines_added }}
+              - ➖ Lines deleted: ${{ steps.changed-files.outputs.lines_deleted }}
+              
+              🎯 **Areas Modified**:
+              ${${{ steps.changed-files.outputs.models_changed }} > 0 ? '- 🗃️ Models' : ''}
+              ${${{ steps.changed-files.outputs.controllers_changed }} > 0 ? '- 🎮 Controllers' : ''}
+              ${${{ steps.changed-files.outputs.routes_changed }} > 0 ? '- 🛣️ Routes' : ''}
+              ${${{ steps.changed-files.outputs.tests_changed }} > 0 ? '- 🧪 Tests' : ''}
+              ${${{ steps.changed-files.outputs.github_changed }} > 0 ? '- ⚙️ CI/CD' : ''}
+              ${${{ steps.changed-files.outputs.docs_changed }} > 0 ? '- 📚 Documentation' : ''}
+              ${${{ steps.changed-files.outputs.deps_changed }} > 0 ? '- 📦 Dependencies' : ''}
+              ${${{ steps.changed-files.outputs.config_changed }} > 0 ? '- ⚙️ Configuration' : ''}
+              ${${{ steps.changed-files.outputs.main_changed }} > 0 ? '- 🎯 Core Application' : ''}
+              
+              Labels have been automatically applied based on the changes detected. 🏷️`;
+              
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: analysisComment
+              });
+            }
+
+      - name: ✅ Auto-labeling complete
+        run: |
+          echo "🎉 Auto-labeling completed successfully!"
+          echo "📊 Analysis Summary:"
+          echo "  📁 Total files: ${{ steps.changed-files.outputs.total_files }}"
+          echo "  ➕ Lines added: ${{ steps.changed-files.outputs.lines_added }}"
+          echo "  ➖ Lines deleted: ${{ steps.changed-files.outputs.lines_deleted }}"
+          echo "  🎯 Areas detected based on file patterns"
+          echo "  🏷️ Labels automatically applied"

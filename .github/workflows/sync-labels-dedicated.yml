@@ -1,0 +1,34 @@
+name: Sync Labels (Dedicated Action)
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ '.github/labels.yml' ]
+  workflow_dispatch:
+
+jobs:
+  sync-labels:
+    name: 🏷️ Sync Repository Labels (Dedicated)
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔄 Sync labels using dedicated action
+        uses: crazy-max/ghaction-github-labeler@v5
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          yaml-file: .github/labels.yml
+          skip-delete: false
+          dry-run: false
+          exclude: |
+            help*
+            *duplicate*
+
+      - name: ✅ Label sync complete
+        run: |
+          echo "🎉 Label synchronization completed using dedicated action!"
+          echo "🏷️ All repository labels are now in sync with .github/labels.yml"

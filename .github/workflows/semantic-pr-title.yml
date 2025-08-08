@@ -1,0 +1,335 @@
+name: Semantic PR Title
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+    branches: [ main, develop ]
+
+jobs:
+  validate-pr-title:
+    name: 🔍 Validate PR Title
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: write
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔍 Validate semantic title
+        id: validate
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prTitle = context.payload.pull_request.title;
+            console.log(`Validating PR title: "${prTitle}"`);
+            
+            // Define allowed types and their descriptions
+            const allowedTypes = {
+              'feat': {
+                description: 'A new feature',
+                examples: ['feat: add user authentication', 'feat(api): implement pagination']
+              },
+              'fix': {
+                description: 'A bug fix',
+                examples: ['fix: resolve login issue', 'fix(auth): handle token expiration']
+              },
+              'docs': {
+                description: 'Documentation only changes',
+                examples: ['docs: update API documentation', 'docs(readme): add installation guide']
+              },
+              'style': {
+                description: 'Changes that do not affect the meaning of the code (white-space, formatting, etc)',
+                examples: ['style: format code with gofmt', 'style(css): fix indentation']
+              },
+              'refactor': {
+                description: 'A code change that neither fixes a bug nor adds a feature',
+                examples: ['refactor: simplify user validation', 'refactor(models): extract common interface']
+              },
+              'perf': {
+                description: 'A code change that improves performance',
+                examples: ['perf: optimize database queries', 'perf(api): cache user sessions']
+              },
+              'test': {
+                description: 'Adding missing tests or correcting existing tests',
+                examples: ['test: add user controller tests', 'test(unit): cover edge cases']
+              },
+              'build': {
+                description: 'Changes that affect the build system or external dependencies',
+                examples: ['build: update go version to 1.21', 'build(deps): bump gin to v1.9.1']
+              },
+              'ci': {
+                description: 'Changes to CI configuration files and scripts',
+                examples: ['ci: add automated testing', 'ci(github): update workflow permissions']
+              },
+              'chore': {
+                description: 'Other changes that don\'t modify src or test files',
+                examples: ['chore: update gitignore', 'chore(release): prepare v1.2.0']
+              },
+              'revert': {
+                description: 'Reverts a previous commit',
+                examples: ['revert: "feat: add user authentication"', 'revert(api): rollback breaking changes']
+              }
+            };
+            
+            // Regex pattern for conventional commits
+            // Format: type(optional scope): description
+            // Examples: feat: add feature, fix(auth): resolve bug, docs(api): update guide
+            const conventionalCommitRegex = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .{1,100}$/;
+            
+            // Additional validation patterns
+            const typeOnlyRegex = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)$/;
+            const hasColonRegex = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?:/;
+            const hasDescriptionRegex = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .+/;
+            
+            let isValid = false;
+            let errorMessage = '';
+            let suggestions = [];
+            let detectedType = '';
+            
+            // Check if title matches conventional commit format
+            if (conventionalCommitRegex.test(prTitle)) {
+              isValid = true;
+              // Extract type for labeling
+              const typeMatch = prTitle.match(/^([a-z]+)/);
+              detectedType = typeMatch ? typeMatch[1] : '';
+              console.log(`✅ Valid semantic title. Type: ${detectedType}`);
+            } else {
+              // Provide specific error messages and suggestions
+              if (typeOnlyRegex.test(prTitle)) {
+                errorMessage = 'Missing description after type';
+                suggestions.push(`${prTitle}: add your description here`);
+              } else if (!hasColonRegex.test(prTitle)) {
+                // Check if it starts with a valid type
+                const startsWithType = Object.keys(allowedTypes).some(type => 
+                  prTitle.toLowerCase().startsWith(type));
+                
+                if (startsWithType) {
+                  errorMessage = 'Missing colon after type';
+                  const type = Object.keys(allowedTypes).find(type => 
+                    prTitle.toLowerCase().startsWith(type));
+                  suggestions.push(`${type}: ${prTitle.substring(type.length).trim()}`);
+                } else {
+                  errorMessage = 'Title must start with a valid type';
+                  suggestions.push(`feat: ${prTitle}`);
+                  suggestions.push(`fix: ${prTitle}`);
+                  suggestions.push(`docs: ${prTitle}`);
+                }
+              } else if (!hasDescriptionRegex.test(prTitle)) {
+                errorMessage = 'Missing description after colon';
+                suggestions.push(`${prTitle} add description here`);
+              } else if (prTitle.length > 100) {
+                errorMessage = 'Title too long (max 100 characters)';
+                suggestions.push(prTitle.substring(0, 97) + '...');
+              } else {
+                errorMessage = 'Title format is invalid';
+                suggestions.push('feat: add new feature');
+                suggestions.push('fix: resolve specific issue');
+              }
+              
+              console.log(`❌ Invalid semantic title: ${errorMessage}`);
+            }
+            
+            // Set outputs
+            core.setOutput('is_valid', isValid.toString());
+            core.setOutput('error_message', errorMessage);
+            core.setOutput('suggestions', suggestions.join('\n'));
+            core.setOutput('detected_type', detectedType);
+            
+            return {
+              isValid,
+              errorMessage,
+              suggestions,
+              detectedType,
+              allowedTypes: Object.keys(allowedTypes)
+            };
+
+      - name: 🏷️ Add type label
+        if: steps.validate.outputs.is_valid == 'true' && steps.validate.outputs.detected_type != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const detectedType = '${{ steps.validate.outputs.detected_type }}';
+            const typeLabel = `type: ${detectedType}`;
+            
+            // Ensure the label exists
+            const labelConfigs = {
+              'type: feat': { color: '84B6EB', description: 'New feature implementation' },
+              'type: fix': { color: 'D73A4A', description: 'Bug fix or error correction' },
+              'type: docs': { color: '006B75', description: 'Documentation changes' },
+              'type: style': { color: 'F9C513', description: 'Code style changes' },
+              'type: refactor': { color: '7057FF', description: 'Code refactoring' },
+              'type: perf': { color: 'FF6B6B', description: 'Performance improvements' },
+              'type: test': { color: 'F9C513', description: 'Test changes' },
+              'type: build': { color: 'C2E0C6', description: 'Build system changes' },
+              'type: ci': { color: '5319E7', description: 'CI/CD changes' },
+              'type: chore': { color: 'E99695', description: 'Maintenance tasks' },
+              'type: revert': { color: 'CFD3D7', description: 'Revert previous changes' }
+            };
+            
+            if (labelConfigs[typeLabel]) {
+              try {
+                await github.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: typeLabel
+                });
+              } catch (error) {
+                if (error.status === 404) {
+                  await github.rest.issues.createLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    name: typeLabel,
+                    color: labelConfigs[typeLabel].color,
+                    description: labelConfigs[typeLabel].description
+                  });
+                  console.log(`Created label: ${typeLabel}`);
+                }
+              }
+              
+              // Add label to PR
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: [typeLabel]
+              });
+              
+              console.log(`Added label: ${typeLabel}`);
+            }
+
+      - name: ❌ Comment on invalid title
+        if: steps.validate.outputs.is_valid == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const errorMessage = `${{ steps.validate.outputs.error_message }}`;
+            const suggestions = `${{ steps.validate.outputs.suggestions }}`.split('\n').filter(s => s.length > 0);
+            
+            const helpComment = `## ❌ Invalid PR Title Format
+            
+            **Issue:** ${errorMessage}
+            
+            ### 📋 Required Format
+            Your PR title must follow the [Conventional Commits](https://www.conventionalcommits.org/) specification:
+            
+            \`\`\`
+            <type>[optional scope]: <description>
+            \`\`\`
+            
+            ### ✅ Allowed Types
+            
+            | Type | Description | Example |
+            |------|-------------|---------|
+            | \`feat\` | A new feature | \`feat: add user authentication\` |
+            | \`fix\` | A bug fix | \`fix: resolve login issue\` |
+            | \`docs\` | Documentation changes | \`docs: update API guide\` |
+            | \`style\` | Code style changes | \`style: format with gofmt\` |
+            | \`refactor\` | Code refactoring | \`refactor: simplify validation\` |
+            | \`perf\` | Performance improvements | \`perf: optimize queries\` |
+            | \`test\` | Test changes | \`test: add unit tests\` |
+            | \`build\` | Build system changes | \`build: update dependencies\` |
+            | \`ci\` | CI/CD changes | \`ci: add workflow\` |
+            | \`chore\` | Maintenance tasks | \`chore: update gitignore\` |
+            | \`revert\` | Revert changes | \`revert: "feat: user auth"\` |
+            
+            ### 💡 Suggestions for your title:
+            ${suggestions.map(s => `- \`${s}\``).join('\n')}
+            
+            ### 📏 Additional Rules
+            - Maximum 100 characters
+            - Use lowercase for type
+            - Use present tense ("add" not "added")
+            - Don't capitalize first letter of description
+            - Don't end description with period
+            
+            ### 🔧 How to Fix
+            1. Edit your PR title to match one of the suggestions above
+            2. The validation will run automatically when you save
+            
+            ---
+            *This comment will be automatically deleted once you fix the title* ✨`;
+            
+            // Check if we already commented on this PR
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+            
+            const existingComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('❌ Invalid PR Title Format')
+            );
+            
+            if (existingComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existingComment.id,
+                body: helpComment
+              });
+              console.log('Updated existing invalid title comment');
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: helpComment
+              });
+              console.log('Created new invalid title comment');
+            }
+
+      - name: ✅ Clean up success
+        if: steps.validate.outputs.is_valid == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Remove any existing invalid title comments when title becomes valid
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+            
+            const invalidTitleComments = comments.filter(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('❌ Invalid PR Title Format')
+            );
+            
+            for (const comment of invalidTitleComments) {
+              await github.rest.issues.deleteComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: comment.id
+              });
+              console.log(`Deleted invalid title comment: ${comment.id}`);
+            }
+            
+            if (invalidTitleComments.length > 0) {
+              // Add a success comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: '✅ **Great!** Your PR title now follows the semantic format. Thank you! 🎉'
+              });
+            }
+
+      - name: 🚫 Fail if invalid
+        if: steps.validate.outputs.is_valid == 'false'
+        run: |
+          echo "❌ PR title validation failed"
+          echo "Error: ${{ steps.validate.outputs.error_message }}"
+          echo "Please update your PR title to follow semantic format"
+          exit 1
+
+      - name: ✅ Success summary
+        if: steps.validate.outputs.is_valid == 'true'
+        run: |
+          echo "✅ PR title validation passed!"
+          echo "📝 Title: ${{ github.event.pull_request.title }}"
+          echo "🏷️ Type: ${{ steps.validate.outputs.detected_type }}"
+          echo "🎉 Follows conventional commit format"

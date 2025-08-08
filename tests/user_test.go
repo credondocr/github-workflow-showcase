@@ -1,0 +1,237 @@
+package tests
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+
+	"github.com/credondocr/github-workflow-showcase/models"
+	"github.com/credondocr/github-workflow-showcase/routes"
+)
+
+var _ = Describe("User API", func() {
+	var router http.Handler
+
+	BeforeEach(func() {
+		router = routes.SetupRouter()
+	})
+
+	Describe("GET /health", func() {
+		It("should return health status", func() {
+			req, _ := http.NewRequest("GET", "/health", http.NoBody)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			Expect(w.Code).To(Equal(http.StatusOK))
+
+			var response map[string]interface{}
+			err := json.Unmarshal(w.Body.Bytes(), &response)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(response["success"]).To(BeTrue())
+			Expect(response["message"]).To(Equal("API is working correctly"))
+		})
+	})
+
+	Describe("GET /", func() {
+		It("should return API information", func() {
+			req, _ := http.NewRequest("GET", "/", http.NoBody)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			Expect(w.Code).To(Equal(http.StatusOK))
+
+			var response map[string]interface{}
+			err := json.Unmarshal(w.Body.Bytes(), &response)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(response["message"]).To(Equal("Welcome to the example REST API!"))
+			Expect(response["version"]).To(Equal("1.0.0"))
+		})
+	})
+
+	Describe("User CRUD Operations", func() {
+		Describe("GET /api/v1/users", func() {
+			It("should return empty users list initially", func() {
+				req, _ := http.NewRequest("GET", "/api/v1/users", http.NoBody)
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, req)
+
+				Expect(w.Code).To(Equal(http.StatusOK))
+
+				var response map[string]interface{}
+				err := json.Unmarshal(w.Body.Bytes(), &response)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(response["success"]).To(BeTrue())
+				Expect(response["total"]).To(Equal(float64(0)))
+			})
+		})
+
+		Describe("POST /api/v1/users", func() {
+			It("should create a new user with valid data", func() {
+				user := models.User{
+					Name:  "Juan Pérez",
+					Email: "juan@example.com",
+					Age:   30,
+				}
+
+				jsonData, _ := json.Marshal(user)
+				req, _ := http.NewRequest("POST", "/api/v1/users", bytes.NewBuffer(jsonData))
+				req.Header.Set("Content-Type", "application/json")
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, req)
+
+				Expect(w.Code).To(Equal(http.StatusCreated))
+
+				var response map[string]interface{}
+				err := json.Unmarshal(w.Body.Bytes(), &response)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(response["success"]).To(BeTrue())
+				Expect(response["message"]).To(Equal("User created successfully"))
+
+				data := response["data"].(map[string]interface{})
+				Expect(data["name"]).To(Equal("Juan Pérez"))
+				Expect(data["email"]).To(Equal("juan@example.com"))
+				Expect(data["age"]).To(Equal(float64(30)))
+				Expect(data["id"]).To(Equal(float64(1)))
+			})
+
+			It("should return error with invalid data", func() {
+				user := models.User{
+					Name:  "",
+					Email: "invalid-email",
+					Age:   -5,
+				}
+
+				jsonData, _ := json.Marshal(user)
+				req, _ := http.NewRequest("POST", "/api/v1/users", bytes.NewBuffer(jsonData))
+				req.Header.Set("Content-Type", "application/json")
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, req)
+
+				Expect(w.Code).To(Equal(http.StatusBadRequest))
+
+				var response map[string]interface{}
+				err := json.Unmarshal(w.Body.Bytes(), &response)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(response["error"]).ToNot(BeNil())
+			})
+		})
+
+		Describe("GET /api/v1/users/:id", func() {
+			It("should return user by ID after creating one", func() {
+				// Primero crear un usuario
+				user := models.User{
+					Name:  "María García",
+					Email: "maria@example.com",
+					Age:   25,
+				}
+
+				jsonData, _ := json.Marshal(user)
+				req, _ := http.NewRequest("POST", "/api/v1/users", bytes.NewBuffer(jsonData))
+				req.Header.Set("Content-Type", "application/json")
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, req)
+
+				// Luego obtener el usuario por ID
+				req, _ = http.NewRequest("GET", "/api/v1/users/1", http.NoBody)
+				w = httptest.NewRecorder()
+				router.ServeHTTP(w, req)
+
+				Expect(w.Code).To(Equal(http.StatusOK))
+
+				var response map[string]interface{}
+				err := json.Unmarshal(w.Body.Bytes(), &response)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(response["success"]).To(BeTrue())
+
+				data := response["data"].(map[string]interface{})
+				Expect(data["name"]).To(Equal("María García"))
+				Expect(data["email"]).To(Equal("maria@example.com"))
+			})
+
+			It("should return 404 for non-existent user", func() {
+				req, _ := http.NewRequest("GET", "/api/v1/users/999", http.NoBody)
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, req)
+
+				Expect(w.Code).To(Equal(http.StatusNotFound))
+
+				var response map[string]interface{}
+				err := json.Unmarshal(w.Body.Bytes(), &response)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(response["error"]).To(Equal("User not found"))
+			})
+		})
+
+		Describe("PUT /api/v1/users/:id", func() {
+			It("should update existing user", func() {
+				// Primero crear un usuario
+				user := models.User{
+					Name:  "Carlos López",
+					Email: "carlos@example.com",
+					Age:   35,
+				}
+
+				jsonData, _ := json.Marshal(user)
+				req, _ := http.NewRequest("POST", "/api/v1/users", bytes.NewBuffer(jsonData))
+				req.Header.Set("Content-Type", "application/json")
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, req)
+
+				// Luego actualizar el usuario
+				updatedUser := models.User{
+					Name:  "Carlos López Actualizado",
+					Email: "carlos.updated@example.com",
+					Age:   36,
+				}
+
+				jsonData, _ = json.Marshal(updatedUser)
+				req, _ = http.NewRequest("PUT", "/api/v1/users/1", bytes.NewBuffer(jsonData))
+				req.Header.Set("Content-Type", "application/json")
+				w = httptest.NewRecorder()
+				router.ServeHTTP(w, req)
+
+				Expect(w.Code).To(Equal(http.StatusOK))
+
+				var response map[string]interface{}
+				err := json.Unmarshal(w.Body.Bytes(), &response)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(response["success"]).To(BeTrue())
+				Expect(response["message"]).To(Equal("User updated successfully"))
+			})
+		})
+
+		Describe("DELETE /api/v1/users/:id", func() {
+			It("should delete existing user", func() {
+				// Primero crear un usuario
+				user := models.User{
+					Name:  "Ana Rodríguez",
+					Email: "ana@example.com",
+					Age:   28,
+				}
+
+				jsonData, _ := json.Marshal(user)
+				req, _ := http.NewRequest("POST", "/api/v1/users", bytes.NewBuffer(jsonData))
+				req.Header.Set("Content-Type", "application/json")
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, req)
+
+				// Luego eliminar el usuario
+				req, _ = http.NewRequest("DELETE", "/api/v1/users/1", http.NoBody)
+				w = httptest.NewRecorder()
+				router.ServeHTTP(w, req)
+
+				Expect(w.Code).To(Equal(http.StatusOK))
+
+				var response map[string]interface{}
+				err := json.Unmarshal(w.Body.Bytes(), &response)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(response["success"]).To(BeTrue())
+				Expect(response["message"]).To(Equal("User deleted successfully"))
+			})
+		})
+	})
+})

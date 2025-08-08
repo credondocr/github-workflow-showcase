@@ -1,0 +1,143 @@
+# golangci-lint configuration
+# Reference: https://golangci-lint.run/usage/configuration/
+
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    # Default linters
+    - errcheck      # Check for unchecked errors
+    - gosimple      # Simplify code
+    - govet         # Vet examines Go source code and reports suspicious constructs
+    - ineffassign   # Detect ineffectual assignments
+    - staticcheck   # Advanced Go linter
+    - typecheck     # Type checking
+    - unused        # Check for unused constants, variables, functions and types
+    
+    # Additional quality linters
+    - gofmt         # Check formatting
+    - goimports     # Check imports formatting
+    - misspell      # Find commonly misspelled English words
+    - unconvert     # Remove unnecessary type conversions
+    - unparam       # Report unused function parameters
+    - gocritic      # Provides diagnostics that check for bugs, performance and style issues
+    - gocyclo       # Computes and checks the cyclomatic complexity of functions
+    - dupl          # Code clone detection
+    - goconst       # Find repeated strings that could be replaced by a constant
+    - godot         # Check if comments end in a period
+    - goprintffuncname # Check that printf-like functions are named with f at the end
+    - gosec         # Security analyzer
+    - nolintlint    # Report ill-formed or insufficient nolint directives
+    - rowserrcheck  # Check whether Err of rows is checked successfully
+    - sqlclosecheck # Check that sql.Rows and sql.Stmt are closed
+    - whitespace    # Detect leading and trailing whitespace
+    - wsl           # Whitespace linter forces you to use empty lines
+    - predeclared   # Find code that shadows Go's predeclared identifiers
+
+  disable:
+    - exhaustive    # Check exhaustiveness of enum switch statements (can be noisy)
+    - funlen        # Tool for detection of long functions (we'll handle this manually)
+    - lll           # Line length limit (we prefer readability over strict limits)
+    - gocognit      # Cognitive complexity (similar to gocyclo, avoid redundancy)
+
+linters-settings:
+  gocyclo:
+    min-complexity: 15
+  
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+      - experimental
+    disabled-checks:
+      - paramTypeCombine # Can be overly restrictive
+      - unnamedResult    # Sometimes named returns are clearer
+  
+  gosec:
+    severity: medium
+    confidence: medium
+    excludes:
+      - G104 # Audit errors not checked (we have errcheck for this)
+  
+  misspell:
+    locale: US
+  
+  goimports:
+    local-prefixes: github.com/credondocr/github-workflow-showcase
+  
+  govet:
+    # check-shadowing option deprecated in newer versions
+    # Use 'shadow' linter instead for shadow checking
+    settings:
+      printf:
+        funcs:
+          - (github.com/gin-gonic/gin.Context).JSON
+          - (github.com/gin-gonic/gin.Context).HTML
+  
+  whitespace:
+    multi-if: false
+    multi-func: false
+  
+  wsl:
+    strict-append: true
+    allow-assign-and-call: true
+    allow-multiline-assign: true
+    # allow-case-trailing-whitespace option removed in newer versions
+    allow-cuddle-declarations: false
+
+issues:
+  # Maximum issues count per one linter
+  max-issues-per-linter: 50
+  
+  # Maximum count of issues with the same text
+  max-same-issues: 10
+  
+  # Show only new issues: if there are unstaged changes or untracked files,
+  # only those changes are analyzed, else only changes in HEAD~ are analyzed
+  new: false
+  
+  # Fix found issues (if it's supported by the linter)
+  fix: false
+  
+  exclude-rules:
+    # Exclude some linters from running on tests files
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - errcheck
+        - dupl
+        - gosec
+        - goconst
+    
+    # Exclude some linters from running on main.go (entry point)
+    - path: main\.go
+      linters:
+        - gocyclo
+    
+    # Exclude some staticcheck messages
+    - linters:
+        - staticcheck
+      text: "SA9003:"
+    
+    # Exclude lll issues for long lines with go:generate
+    - linters:
+        - lll
+      source: "^//go:generate "
+
+  # Independently from option `exclude` we use default exclude patterns,
+  # it can be disabled by `exclude-use-default: false`. To list all
+  # excluded by default patterns execute `golangci-lint run --help`
+  exclude-use-default: true
+
+output:
+  # format option moved to different section in newer versions
+  print-issued-lines: true
+  print-linter-name: true
+  # uniq-by-line option removed in newer versions
+  sort-results: true
+  formats:
+    - format: colored-line-number

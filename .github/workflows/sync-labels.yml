@@ -1,0 +1,143 @@
+name: Sync Labels
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ '.github/labels.yml' ]
+  workflow_dispatch:
+
+jobs:
+  sync-labels:
+    name: 🏷️ Sync Repository Labels
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔄 Sync labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            // Read labels configuration (parse YAML manually since js-yaml isn't available)
+            const yamlContent = fs.readFileSync('.github/labels.yml', 'utf8');
+            
+            // Simple YAML parser for our specific format
+            function parseLabelsYaml(content) {
+              const labels = [];
+              const lines = content.split('\n');
+              let currentLabel = {};
+              
+              for (const line of lines) {
+                const trimmed = line.trim();
+                if (trimmed.startsWith('- name:')) {
+                  if (currentLabel.name) {
+                    labels.push(currentLabel);
+                  }
+                  currentLabel = { name: trimmed.replace('- name:', '').replace(/"/g, '').trim() };
+                } else if (trimmed.startsWith('color:')) {
+                  currentLabel.color = trimmed.replace('color:', '').replace(/"/g, '').trim();
+                } else if (trimmed.startsWith('description:')) {
+                  currentLabel.description = trimmed.replace('description:', '').replace(/"/g, '').trim();
+                }
+              }
+              if (currentLabel.name) {
+                labels.push(currentLabel);
+              }
+              return labels;
+            }
+            
+            const labelsConfig = parseLabelsYaml(yamlContent);
+            
+            console.log(`📋 Found ${labelsConfig.length} labels to sync`);
+            
+            // Get existing labels
+            const { data: existingLabels } = await github.rest.issues.listLabelsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100
+            });
+            
+            const existingLabelNames = existingLabels.map(label => label.name);
+            console.log(`📋 Found ${existingLabels.length} existing labels`);
+            
+            let created = 0;
+            let updated = 0;
+            let skipped = 0;
+            
+            // Process each label from config
+            for (const labelConfig of labelsConfig) {
+              const { name, color, description } = labelConfig;
+              
+              try {
+                if (existingLabelNames.includes(name)) {
+                  // Label exists, check if it needs updating
+                  const existingLabel = existingLabels.find(l => l.name === name);
+                  
+                  if (existingLabel.color !== color || existingLabel.description !== description) {
+                    await github.rest.issues.updateLabel({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      name: name,
+                      color: color,
+                      description: description
+                    });
+                    console.log(`✏️ Updated label: ${name}`);
+                    updated++;
+                  } else {
+                    console.log(`✅ Label already up-to-date: ${name}`);
+                    skipped++;
+                  }
+                } else {
+                  // Label doesn't exist, create it
+                  await github.rest.issues.createLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    name: name,
+                    color: color,
+                    description: description
+                  });
+                  console.log(`➕ Created label: ${name}`);
+                  created++;
+                }
+              } catch (error) {
+                console.error(`❌ Error processing label ${name}:`, error.message);
+              }
+            }
+            
+            console.log(`\n📊 Label Sync Summary:`);
+            console.log(`➕ Created: ${created}`);
+            console.log(`✏️ Updated: ${updated}`);
+            console.log(`✅ Skipped (up-to-date): ${skipped}`);
+            console.log(`📋 Total processed: ${labelsConfig.length}`);
+            
+            // Optional: Remove labels that are not in config (uncomment if needed)
+            /*
+            const configLabelNames = labelsConfig.map(l => l.name);
+            const labelsToDelete = existingLabels.filter(label => 
+              !configLabelNames.includes(label.name) && 
+              !label.name.startsWith('dependencies') // Keep dependabot labels
+            );
+            
+            for (const labelToDelete of labelsToDelete) {
+              try {
+                await github.rest.issues.deleteLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: labelToDelete.name
+                });
+                console.log(`🗑️ Deleted unused label: ${labelToDelete.name}`);
+              } catch (error) {
+                console.error(`❌ Error deleting label ${labelToDelete.name}:`, error.message);
+              }
+            }
+            */
+
+      - name: ✅ Label sync complete
+        run: |
+          echo "🎉 Label synchronization completed!"
+          echo "🏷️ All repository labels are now in sync with .github/labels.yml"

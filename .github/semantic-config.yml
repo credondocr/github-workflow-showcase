@@ -1,0 +1,170 @@
+# Semantic PR Title Configuration
+# This file defines the allowed conventional commit types and their validation rules
+
+# Semantic commit types configuration
+types:
+  # Core types (recommended)
+  feat:
+    description: "A new feature"
+    examples:
+      - "feat: add user authentication"
+      - "feat(api): implement pagination"
+      - "feat(auth): add OAuth2 support"
+    
+  fix:
+    description: "A bug fix"
+    examples:
+      - "fix: resolve login issue"
+      - "fix(auth): handle token expiration"
+      - "fix(api): correct response format"
+    
+  docs:
+    description: "Documentation only changes"
+    examples:
+      - "docs: update API documentation"
+      - "docs(readme): add installation guide"
+      - "docs(api): document new endpoints"
+    
+  # Code quality types
+  style:
+    description: "Changes that do not affect the meaning of the code (white-space, formatting, missing semi-colons, etc)"
+    examples:
+      - "style: format code with gofmt"
+      - "style(css): fix indentation"
+      - "style: remove trailing whitespace"
+    
+  refactor:
+    description: "A code change that neither fixes a bug nor adds a feature"
+    examples:
+      - "refactor: simplify user validation"
+      - "refactor(models): extract common interface"
+      - "refactor: improve error handling"
+    
+  perf:
+    description: "A code change that improves performance"
+    examples:
+      - "perf: optimize database queries"
+      - "perf(api): cache user sessions"
+      - "perf: reduce memory allocation"
+    
+  # Testing and tooling
+  test:
+    description: "Adding missing tests or correcting existing tests"
+    examples:
+      - "test: add user controller tests"
+      - "test(unit): cover edge cases"
+      - "test: improve test coverage"
+    
+  build:
+    description: "Changes that affect the build system or external dependencies"
+    examples:
+      - "build: update go version to 1.21"
+      - "build(deps): bump gin to v1.9.1"
+      - "build: configure docker build"
+    
+  ci:
+    description: "Changes to CI configuration files and scripts"
+    examples:
+      - "ci: add automated testing"
+      - "ci(github): update workflow permissions"
+      - "ci: configure deployment pipeline"
+    
+  # Maintenance
+  chore:
+    description: "Other changes that don't modify src or test files"
+    examples:
+      - "chore: update gitignore"
+      - "chore(release): prepare v1.2.0"
+      - "chore: clean up dependencies"
+    
+  revert:
+    description: "Reverts a previous commit"
+    examples:
+      - 'revert: "feat: add user authentication"'
+      - 'revert(api): rollback breaking changes'
+      - 'revert: "fix: login issue"'
+
+# Validation rules
+validation:
+  # Maximum length for the entire title
+  max_length: 100
+  
+  # Minimum length for the description part
+  min_description_length: 3
+  
+  # Whether to allow uppercase letters in the description
+  allow_uppercase_description: false
+  
+  # Whether to require a scope (optional part in parentheses)
+  require_scope: false
+  
+  # List of allowed scopes (if empty, any scope is allowed)
+  allowed_scopes: []
+  # Example of restricted scopes:
+  # allowed_scopes: ["api", "auth", "ui", "db", "docs", "test", "ci"]
+  
+  # Whether to allow breaking change indicator (!)
+  # Example: "feat!: breaking change" or "feat(api)!: breaking change"
+  allow_breaking_change_indicator: true
+
+# Custom patterns (advanced)
+patterns:
+  # Custom regex for additional validation (optional)
+  # If specified, titles must match this pattern in addition to the basic format
+  custom_regex: ""
+  
+  # Forbidden words or patterns in titles
+  forbidden_patterns:
+    - "WIP"
+    - "DRAFT"
+    - "TODO"
+    - "FIXME"
+    - "HACK"
+
+# Label mapping
+# Automatically add labels based on the semantic type
+label_mapping:
+  feat: "type: feature"
+  fix: "type: bugfix"
+  docs: "type: documentation"
+  style: "type: style"
+  refactor: "type: refactor"
+  perf: "type: performance"
+  test: "type: test"
+  build: "type: build"
+  ci: "type: ci"
+  chore: "type: chore"
+  revert: "type: revert"
+
+# Auto-fix suggestions
+# When a title is invalid, suggest these alternatives
+auto_fix_suggestions:
+  # If title doesn't start with a type, suggest these prefixes
+  default_suggestions:
+    - "feat: "
+    - "fix: "
+    - "docs: "
+    - "chore: "
+  
+  # Common patterns to replace
+  pattern_replacements:
+    "^[Aa]dd ": "feat: add "
+    "^[Ff]ix ": "fix: "
+    "^[Uu]pdate ": "chore: update "
+    "^[Ii]mprove ": "perf: improve "
+    "^[Rr]efactor ": "refactor: "
+    "^[Dd]ocs? ": "docs: "
+
+# Integration settings
+integration:
+  # Whether to fail the PR if title is invalid
+  fail_on_invalid: true
+  
+  # Whether to add comments explaining the validation
+  add_help_comments: true
+  
+  # Whether to automatically add type labels
+  auto_add_labels: true
+  
+  # Whether to update existing comments or create new ones
+  update_existing_comments: true
