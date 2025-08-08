@@ -1,0 +1,180 @@
+package controllers
+
+import (
+	"net/http"
+	"strconv"
+
+	"github.com/credondocr/github-workflow-showcase/models"
+	"github.com/gin-gonic/gin"
+)
+
+// UserController handles HTTP requests related to users
+type UserController struct {
+	userRepo models.UserRepository
+}
+
+// NewUserController creates a new instance of the user controller
+func NewUserController(userRepo models.UserRepository) *UserController {
+	return &UserController{
+		userRepo: userRepo,
+	}
+}
+
+// GetUsers handles GET /users - retrieves all users
+func (uc *UserController) GetUsers(c *gin.Context) {
+	users, err := uc.userRepo.GetAll()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Internal server error",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    users,
+		"total":   len(users),
+	})
+}
+
+// GetUser handles GET /users/:id - retrieves a user by ID
+func (uc *UserController) GetUser(c *gin.Context) {
+	idParam := c.Param("id")
+	id, err := strconv.Atoi(idParam)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Invalid ID",
+			"message": "ID must be an integer",
+		})
+		return
+	}
+
+	user, err := uc.userRepo.GetByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":   "User not found",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    user,
+	})
+}
+
+// CreateUser handles POST /users - creates a new user
+func (uc *UserController) CreateUser(c *gin.Context) {
+	var user models.User
+
+	if err := c.ShouldBindJSON(&user); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Invalid data",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	if err := user.Validate(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Validation failed",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	if err := uc.userRepo.Create(&user); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Error creating user",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"success": true,
+		"message": "User created successfully",
+		"data":    user,
+	})
+}
+
+// UpdateUser handles PUT /users/:id - updates an existing user
+func (uc *UserController) UpdateUser(c *gin.Context) {
+	idParam := c.Param("id")
+	id, err := strconv.Atoi(idParam)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Invalid ID",
+			"message": "ID must be an integer",
+		})
+		return
+	}
+
+	var user models.User
+	if err := c.ShouldBindJSON(&user); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Invalid data",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	if err := user.Validate(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Validation failed",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	if err := uc.userRepo.Update(id, &user); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":   "User not found",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "User updated successfully",
+		"data":    user,
+	})
+}
+
+// DeleteUser handles DELETE /users/:id - deletes a user
+func (uc *UserController) DeleteUser(c *gin.Context) {
+	idParam := c.Param("id")
+	id, err := strconv.Atoi(idParam)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Invalid ID",
+			"message": "ID must be an integer",
+		})
+		return
+	}
+
+	if err := uc.userRepo.Delete(id); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":   "User not found",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "User deleted successfully",
+	})
+}
+
+// HealthCheck handles GET /health - health check endpoint
+func (uc *UserController) HealthCheck(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "API is working correctly",
+		"version": "1.0.0",
+	})
+}

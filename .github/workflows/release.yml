@@ -1,0 +1,237 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  # Validate release
+  validate:
+    name: 🔍 Validate Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🐹 Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+          cache: true
+
+      - name: 📦 Download dependencies
+        run: go mod download
+
+      - name: 🧪 Run all tests
+        run: go test -v ./...
+
+      - name: 🔍 Run linting
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: latest
+
+      - name: 🏗️ Build binaries
+        run: |
+          go build -v -o github-workflow-showcase-linux-amd64 ./main.go
+          GOOS=windows GOARCH=amd64 go build -v -o github-workflow-showcase-windows-amd64.exe ./main.go
+          GOOS=darwin GOARCH=amd64 go build -v -o github-workflow-showcase-darwin-amd64 ./main.go
+          GOOS=darwin GOARCH=arm64 go build -v -o github-workflow-showcase-darwin-arm64 ./main.go
+
+      - name: 📤 Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: release-binaries
+          path: |
+            github-workflow-showcase-*
+
+  # Create release
+  release:
+    name: 🚀 Create Release
+    runs-on: ubuntu-latest
+    needs: validate
+    permissions:
+      contents: write
+    outputs:
+      release-url: ${{ steps.create-release.outputs.html_url }}
+      tag-name: ${{ steps.extract-tag.outputs.tag }}
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🏷️ Extract tag name
+        id: extract-tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG_NAME="${{ github.event.inputs.version }}"
+          else
+            TAG_NAME=${GITHUB_REF#refs/tags/}
+          fi
+          echo "tag=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "Tag: $TAG_NAME"
+
+      - name: 📝 Generate changelog
+        id: changelog
+        run: |
+          echo "# Release Notes for ${{ steps.extract-tag.outputs.tag }}" > CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "## What's Changed" >> CHANGELOG.md
+          
+          # Get commits since last tag
+          LAST_TAG=$(git tag --sort=-version:refname | grep -v "${{ steps.extract-tag.outputs.tag }}" | head -n1)
+          if [ -n "$LAST_TAG" ]; then
+            echo "Comparing with last tag: $LAST_TAG"
+            git log --pretty=format:"- %s (%h)" $LAST_TAG..${{ steps.extract-tag.outputs.tag }} >> CHANGELOG.md
+          else
+            echo "First release - no previous tags found"
+            git log --pretty=format:"- %s (%h)" >> CHANGELOG.md
+          fi
+          
+          echo "" >> CHANGELOG.md
+          echo "## Full Changelog" >> CHANGELOG.md
+          if [ -n "$LAST_TAG" ]; then
+            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/$LAST_TAG...${{ steps.extract-tag.outputs.tag }}" >> CHANGELOG.md
+          else
+            echo "**Full Changelog**: https://github.com/${{ github.repository }}/commits/${{ steps.extract-tag.outputs.tag }}" >> CHANGELOG.md
+          fi
+
+      - name: 📥 Download build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: release-binaries
+          path: ./binaries
+
+      - name: 📦 Prepare release assets
+        run: |
+          cd binaries
+          
+          # Create compressed archives
+          tar -czf github-workflow-showcase-linux-amd64.tar.gz github-workflow-showcase-linux-amd64
+          zip github-workflow-showcase-windows-amd64.zip github-workflow-showcase-windows-amd64.exe
+          tar -czf github-workflow-showcase-darwin-amd64.tar.gz github-workflow-showcase-darwin-amd64
+          tar -czf github-workflow-showcase-darwin-arm64.tar.gz github-workflow-showcase-darwin-arm64
+          
+          # Generate checksums
+          sha256sum * > checksums.txt
+          
+          ls -la
+
+      - name: 🚀 Create GitHub Release
+        id: create-release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.extract-tag.outputs.tag }}
+          release_name: Release ${{ steps.extract-tag.outputs.tag }}
+          body_path: CHANGELOG.md
+          draft: false
+          prerelease: ${{ contains(steps.extract-tag.outputs.tag, '-') }}
+
+      - name: 📤 Upload Release Assets
+        run: |
+          cd binaries
+          
+          # Upload compressed archives
+          gh release upload ${{ steps.extract-tag.outputs.tag }} \
+            github-workflow-showcase-linux-amd64.tar.gz \
+            github-workflow-showcase-windows-amd64.zip \
+            github-workflow-showcase-darwin-amd64.tar.gz \
+            github-workflow-showcase-darwin-arm64.tar.gz \
+            checksums.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Build and push Docker image (optional)
+  docker:
+    name: 🐳 Docker Build & Push
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.repository == 'credondocr/github-workflow-showcase'
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🏷️ Extract tag name
+        id: extract-tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG_NAME="${{ github.event.inputs.version }}"
+          else
+            TAG_NAME=${GITHUB_REF#refs/tags/}
+          fi
+          echo "tag=$TAG_NAME" >> $GITHUB_OUTPUT
+
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔐 Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📝 Create Dockerfile
+        run: |
+          cat > Dockerfile << 'EOF'
+          # Build stage
+          FROM golang:1.21-alpine AS builder
+          
+          WORKDIR /app
+          COPY go.mod go.sum ./
+          RUN go mod download
+          
+          COPY . .
+          RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main ./main.go
+          
+          # Final stage
+          FROM alpine:latest
+          RUN apk --no-cache add ca-certificates tzdata
+          WORKDIR /root/
+          
+          COPY --from=builder /app/main .
+          
+          EXPOSE 8080
+          CMD ["./main"]
+          EOF
+
+      - name: 🏗️ Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ steps.extract-tag.outputs.tag }}
+            ghcr.io/${{ github.repository }}:latest
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Notification
+  notify:
+    name: 📢 Notify Release
+    runs-on: ubuntu-latest
+    needs: [release, docker]
+    if: always() && needs.release.result == 'success'
+    steps:
+      - name: 🎉 Release notification
+        run: |
+          echo "🎉 Release ${{ needs.release.outputs.tag-name }} has been published!"
+          echo "📦 Release URL: ${{ needs.release.outputs.release-url }}"
+          echo "🐳 Docker image: ghcr.io/${{ github.repository }}:${{ needs.release.outputs.tag-name }}"
+          echo ""
+          echo "✅ Release binaries available for:"
+          echo "  🐧 Linux (amd64)"
+          echo "  🪟 Windows (amd64)"
+          echo "  🍎 macOS (amd64 & arm64)"
+          echo ""
+          echo "🚀 Ready for deployment!"
