@@ -10,6 +10,7 @@ jobs:
     name: 🔍 Validate PR Title
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       pull-requests: write
       issues: write
     steps:
@@ -325,6 +326,94 @@ jobs:
           echo "Error: ${{ steps.validate.outputs.error_message }}"
           echo "Please update your PR title to follow semantic format"
           exit 1
+
+      - name: 💬 Comment validation result
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const isValid = '${{ steps.validate.outputs.is_valid }}' === 'true';
+            const prTitle = context.payload.pull_request.title;
+            const detectedType = '${{ steps.validate.outputs.detected_type }}';
+            const errorMessage = '${{ steps.validate.outputs.error_message }}';
+            
+            let comment;
+            
+            if (isValid) {
+              comment = `## ✅ PR Title Validation Passed
+            
+            Your PR title follows the semantic format correctly! 🎉
+            
+            **📝 Title:** \`${prTitle}\`  
+            **🏷️ Type:** \`${detectedType}\`  
+            **✨ Format:** Conventional Commits ✓
+            
+            ### 🎯 What this means:
+            - Your PR title clearly communicates the type of change
+            - It will help generate meaningful changelogs
+            - Reviewers can quickly understand the scope of changes
+            
+            ---
+            <sub>🤖 Semantic validation • Learn more about [Conventional Commits](https://www.conventionalcommits.org/)</sub>`;
+            } else {
+              comment = `## ❌ PR Title Validation Failed
+            
+            Your PR title doesn't follow the required semantic format.
+            
+            **📝 Current Title:** \`${prTitle}\`  
+            **❌ Error:** ${errorMessage}
+            
+            ### 🔧 Required Format:
+            \`\`\`
+            <type>[optional scope]: <description>
+            \`\`\`
+            
+            ### ✅ Valid Examples:
+            - \`feat: add user statistics endpoint\`
+            - \`fix(auth): resolve login validation issue\`  
+            - \`docs: update API documentation\`
+            - \`test: add unit tests for user controller\`
+            - \`refactor(ui): simplify component structure\`
+            
+            ### 🎯 Allowed Types:
+            \`feat\`, \`fix\`, \`docs\`, \`style\`, \`refactor\`, \`perf\`, \`test\`, \`build\`, \`ci\`, \`chore\`, \`revert\`
+            
+            **Please update your PR title to match the format above.** ⬆️
+            
+            ---
+            <sub>🤖 Semantic validation • Learn more about [Conventional Commits](https://www.conventionalcommits.org/)</sub>`;
+            }
+            
+            // Check for existing semantic validation comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+            
+            const existingComment = comments.find(c => 
+              c.user.type === 'Bot' && 
+              (c.body.includes('🤖 Semantic validation') || 
+               c.body.includes('PR Title Validation'))
+            );
+            
+            if (existingComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existingComment.id,
+                body: comment
+              });
+              console.log('✅ Updated existing semantic validation comment');
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: comment
+              });
+              console.log('✅ Created new semantic validation comment');
+            }
 
       - name: ✅ Success summary
         if: steps.validate.outputs.is_valid == 'true'

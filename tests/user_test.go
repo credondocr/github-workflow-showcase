@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -231,6 +232,75 @@ var _ = Describe("User API", func() {
 				Expect(err).ToNot(HaveOccurred())
 				Expect(response["success"]).To(BeTrue())
 				Expect(response["message"]).To(Equal("User deleted successfully"))
+			})
+		})
+
+		Context("User Statistics API", func() {
+			It("should return empty statistics when no users exist", func() {
+				router := routes.SetupRouter()
+				req, _ := http.NewRequest("GET", "/api/v1/users/stats", http.NoBody)
+				recorder := httptest.NewRecorder()
+
+				router.ServeHTTP(recorder, req)
+
+				Expect(recorder.Code).To(Equal(http.StatusOK))
+
+				var response map[string]interface{}
+				err := json.Unmarshal(recorder.Body.Bytes(), &response)
+				Expect(err).To(BeNil())
+
+				Expect(response["success"]).To(Equal(true))
+				Expect(response["message"]).To(Equal("User statistics retrieved successfully"))
+
+				data := response["data"].(map[string]interface{})
+				Expect(data["total_users"]).To(Equal(float64(0)))
+				Expect(data["average_age"]).To(Equal(float64(0)))
+			})
+
+			It("should return correct statistics when users exist", func() {
+				router := routes.SetupRouter()
+
+				// Create test users
+				users := []map[string]interface{}{
+					{"name": "Alice", "email": "alice@test.com", "age": 25},
+					{"name": "Bob", "email": "bob@test.com", "age": 35},
+					{"name": "Charlie", "email": "charlie@test.com", "age": 45},
+				}
+
+				for _, user := range users {
+					userData, _ := json.Marshal(user)
+					req, _ := http.NewRequest("POST", "/api/v1/users", strings.NewReader(string(userData)))
+					req.Header.Set("Content-Type", "application/json")
+					recorder := httptest.NewRecorder()
+					router.ServeHTTP(recorder, req)
+					Expect(recorder.Code).To(Equal(http.StatusCreated))
+				}
+
+				// Get statistics
+				req, _ := http.NewRequest("GET", "/api/v1/users/stats", http.NoBody)
+				recorder := httptest.NewRecorder()
+				router.ServeHTTP(recorder, req)
+
+				Expect(recorder.Code).To(Equal(http.StatusOK))
+
+				var response map[string]interface{}
+				err := json.Unmarshal(recorder.Body.Bytes(), &response)
+				Expect(err).To(BeNil())
+
+				Expect(response["success"]).To(Equal(true))
+
+				data := response["data"].(map[string]interface{})
+				Expect(data["total_users"]).To(Equal(float64(3)))
+				Expect(data["average_age"]).To(Equal(float64(35))) // (25+35+45)/3 = 35
+				Expect(data["min_age"]).To(Equal(float64(25)))
+				Expect(data["max_age"]).To(Equal(float64(45)))
+
+				// Check age ranges
+				ageRanges := data["age_ranges"].(map[string]interface{})
+				Expect(ageRanges["18-25"]).To(Equal(float64(1))) // Alice
+				Expect(ageRanges["26-35"]).To(Equal(float64(1))) // Bob
+				Expect(ageRanges["36-50"]).To(Equal(float64(1))) // Charlie
+				Expect(ageRanges["51+"]).To(Equal(float64(0)))
 			})
 		})
 	})
