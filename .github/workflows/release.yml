@@ -45,7 +45,7 @@ jobs:
           GOOS=darwin GOARCH=arm64 go build -v -o github-workflow-showcase-darwin-arm64 ./main.go
 
       - name: 📤 Upload build artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: release-binaries
           path: |

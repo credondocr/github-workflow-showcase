@@ -128,7 +128,7 @@ jobs:
           name: codecov-umbrella
 
       - name: 📊 Upload coverage reports
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-reports
           path: |
@@ -159,7 +159,7 @@ jobs:
         run: ginkgo -r -v --race --randomize-all --randomize-suites --fail-on-pending --cover --coverprofile=ginkgo-coverage.out
 
       - name: 📊 Upload Ginkgo coverage
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ginkgo-coverage
           path: ginkgo-coverage.out
@@ -247,7 +247,7 @@ jobs:
           go list -m -f '{{.Path}} {{.Version}}' all | grep -v "github.com/credondocr/github-workflow-showcase" >> dependency-report.md
 
       - name: 📤 Upload dependency report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: dependency-report
           path: dependency-report.md
