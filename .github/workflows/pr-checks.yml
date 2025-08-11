@@ -70,7 +70,7 @@ jobs:
           echo "✅ Code formatting is correct"
 
       - name: 🔍 Basic linting
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
         with:
           version: latest
           args: --timeout=3m --fast
